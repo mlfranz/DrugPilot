@@ -1,4 +1,4 @@
-# DrugPilot: A Comprehensive LLM Agent Framework for Drug Discovery
+# ⛑ DrugPilot: A Comprehensive LLM Agent Framework for Drug Discovery
 
 **DrugPilot** is an advanced LLM-based agent framework specifically designed for drug discovery tasks. It utilizes the power of the **ReActAgent** and **Llama-Index** framework to combine reasoning capabilities and specialized tool functions to automate and optimize various aspects of drug discovery.
 
