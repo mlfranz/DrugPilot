@@ -113,7 +113,7 @@ To get started with DrugPilot, follow these steps:
 
 2. Install dependencies
 
-3. Start using the DrugPilot framework by interacting with the API. For specific usage, please refer to main.py
+3. Start using the DrugPilot framework by interacting with the API. For specific usage, please refer to main.py.
 
 ## **📈 Usage**
 To interact with DrugPilot, send textual descriptions related to drug discovery tasks via API calls, and DrugPilot will handle the rest by utilizing the eight core drug discovery functions. Each function is optimized for various drug discovery steps, from cell response prediction to drug generation.
