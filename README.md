@@ -111,7 +111,7 @@ To get started with DrugPilot, follow these steps:
     cd drugpilot
     ```
 
-2. Install dependencies:
+2. Install dependencies
 
 3. Start using the DrugPilot framework by interacting with the API. For specific usage, please refer to main.py
 
