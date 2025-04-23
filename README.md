@@ -9,7 +9,6 @@
 ## Table of Contents
 
 - [Features](#features)
-- [How it works](#how-it-works)
 - [System Requirements](#systemrequirements)
 - [Dependencies for Drug Tools](#dependencies-for-drug-tools)
 - [Getting started](#getting-started)
