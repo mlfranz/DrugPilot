@@ -4,7 +4,19 @@
 
 ![Release](https://img.shields.io/github/v/release/wzn99/DrugPilot)
 ![License](https://img.shields.io/github/license/wzn99/DrugPilot)
-## Key Features
+[![GitHub last commit](https://img.shields.io/github/last-commit/wzn99/DrugPilot)](https://github.com/wzn99/DrugPilot/commits/main)
+
+## Table of Contents
+
+- [Features](#features)
+- [How it works](#how-it-works)
+- [System Requirements](#systemrequirements)
+- [Dependencies for Drug Tools](#dependencies-for-drug-tools)
+- [Getting started](#getting-started)
+- [Usage](#usage)
+- [Conclusion](#conclusion)
+
+## Features
 
 ### **🔬 Drug Discovery Task Functions**
 DrugPilot covers the entire drug discovery lifecycle by implementing algorithms for the following key tasks:
@@ -15,7 +27,7 @@ DrugPilot covers the entire drug discovery lifecycle by implementing algorithms 
 - **🧬 Drug Generation**  
 - **📊 Drug Property Prediction**  
 - **🛠️ Drug Synthesis Design**  
-- **🧑‍🔬 Drug Target Affinity Classification Prediction**  
+- **🔬 Drug Target Affinity Classification Prediction**  
 - **🎯 Drug Target Affinity Regression Prediction**
 
 These tasks are designed to enable users to seamlessly integrate AI-driven solutions into their drug discovery pipelines.
@@ -30,9 +42,6 @@ Based on the **ReActAgent** architecture of **Llama-Index**, DrugPilot introduce
   - Addresses challenges related to large-scale data transmission.  
   - Automatically extracts and structures drug-related parameters for reuse in future tasks.  
   - Offers a user-friendly interface for viewing, modifying, and controlling the LLM's reasoning and decision-making process.
-
-## **🚀 How It Works**
-Users can input textual descriptions related to drug discovery, and DrugPilot will use its optimized agent framework to return the corresponding task results, leveraging its comprehensive suite of algorithms.
 
 ## **⚙️ System Requirements**
 To run DrugPilot, you need to have the following packages installed:
@@ -104,18 +113,18 @@ pip install h5py
 pip install text2vec==1.2.9
 ```
 
-## **🛠️ Installation & Setup**
-To get started with DrugPilot, follow these steps:
+## **🛠️ Getting started**
 
-1. Clone the repository:
-    ```bash
-    git clone https://github.com/your-repo/drugpilot.git
-    cd drugpilot
-    ```
+### Installation:
+> [!IMPORTANT]
+> Installation is mandatory.
 
-2. Install dependencies
+```bash
+git clone https://github.com/your-repo/drugpilot.git
+cd drugpilot
+```
 
-3. Start using the DrugPilot framework by interacting with the API. For specific usage, please refer to main.py.
+Then install dependencies and you can start using the DrugPilot framework by interacting with the API. For specific usage, please refer to main.py.
 
 ## **📈 Usage**
 To interact with DrugPilot, send textual descriptions related to drug discovery tasks via API calls, and DrugPilot will handle the rest by utilizing the eight core drug discovery functions. Each function is optimized for various drug discovery steps, from cell response prediction to drug generation.
