@@ -2,6 +2,8 @@
 
 **DrugPilot** is an advanced LLM-based agent framework specifically designed for drug discovery tasks. It utilizes the power of the **ReActAgent** and **Llama-Index** framework to combine reasoning capabilities and specialized tool functions to automate and optimize various aspects of drug discovery.
 
+![Release](https://img.shields.io/github/v/release/wzn99/DrugPilot)
+![License](https://img.shields.io/github/license/wzn99/DrugPilot)
 ## Key Features
 
 ### **🔬 Drug Discovery Task Functions**
