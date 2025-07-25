@@ -7,7 +7,7 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/wzn99/DrugPilot)](https://github.com/wzn99/DrugPilot/commits/main)
 
 ## Website
-![DrugPilot Website](./your-image-name.png)
+![DrugPilot Website](./platform_DrugPilot.png)
 
 ## Table of Contents
 
