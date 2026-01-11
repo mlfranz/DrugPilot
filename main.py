@@ -7,11 +7,11 @@ from llama_index.core import PromptTemplate
 import pandas as pd
 # from llama_index.core.agent import ReActAgent
 
-from core.agent.ablation_mp.base import ReActAgent as ReActAgentAblationMp
+# from core.agent.ablation_mp.base import ReActAgent as ReActAgentAblationMp
 from core.agent.react.base import ReActAgent as DrugPilot
 
 # Set working directory
-os.chdir('/home/data1/lk/LLM/function_call/baishenglai_backend-main')
+os.chdir('../baishenglai_backend-main')
 
 # Import custom drug calculation tools
 from algorithm.drug_property.main import drug_property_prediction
@@ -46,10 +46,9 @@ llm = Ollama(model="drug_tools_v4", request_timeout=120.0)
 
 # Create ReActAgent instances, passing the function tools list and model to the agent
 agent = DrugPilot.from_tools(tools, llm=llm, verbose=True, max_iterations=20)
-agent_ablation_mp = ReActAgentAblationMp.from_tools(tools, llm=llm, verbose=True, max_iterations=20)
 
 # Read system prompt template file
-file_path = '/home/data1/lk/LLM/function_call/agent_with_memory/core/agent/react/templates/read_memory_pool.md'
+file_path = 'core/agent/react/templates/read_memory_pool.md'
 with open(file_path, 'r') as file:
     react_system_header_str = str(file.read())
 
@@ -89,7 +88,7 @@ question = 'predict property'
 # question += str(agent.memory_pool)
 
 complex_question = "Generate some molecules, select the cell line 684059, specify the z-score as -4.054651. Then predict the inhibitory activity on BACE1 of the generated molecules."
-response = agent_ablation_mp.chat(complex_question)
+response = agent.chat(complex_question)
 print("response: ", response)
 # pprint(agent.memory_pool)
 # agent.reset()
