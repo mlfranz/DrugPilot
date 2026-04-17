@@ -74,7 +74,8 @@ def drug_property_prediction(drug_smiles, property):
 
 
     batch_size=32
-    device='cuda:0'
+    import torch as _torch
+    device = 'cuda:0' if _torch.cuda.is_available() else 'cpu'
 
     # 把列表字符串转为列表
     import ast
@@ -98,7 +99,65 @@ def drug_property_prediction(drug_smiles, property):
         property = property[1:-1]
     task = get_task(property)
     if task is None:
-        return "This is an invalid property, this property cannot be predicted." 
+        return "This is an invalid property, this property cannot be predicted."
+
+    # ── ADMET-AI override for logP (lipo / LIPO) ──────────────────────────
+    # admet_ai requires Python >=3.10; DrugPilot runs on 3.8, so we
+    # delegate to the drugagent conda env via subprocess.
+    if task == 'LIPO':
+        import subprocess
+        import json
+        import sys
+
+        drugagent_python = r"C:\Users\mlwfr\anaconda3\envs\drugagent\python.exe"
+        script = (
+            "import json, os, sys, warnings\n"
+            "warnings.filterwarnings('ignore')\n"
+            "smiles = json.loads(sys.argv[1])\n"
+            # Patch Ipc/AvgIpc before descriptastorus/admet_ai import them.
+            # Both hang in subprocess on Windows (graph-isomorphism deadlock
+            # without a controlling terminal). Zeroing them causes a tiny
+            # systematic offset in the logP model but avoids the infinite hang.
+            "from rdkit.Chem import Descriptors\n"
+            "_IPC_NAMES = {'Ipc', 'AvgIpc'}\n"
+            "Descriptors.descList = [(n, (lambda m: 0.0) if n in _IPC_NAMES else f) for n, f in Descriptors.descList]\n"
+            "Descriptors.Ipc = lambda m: 0.0\n"
+            "Descriptors.AvgIpc = lambda m: 0.0\n"
+            "real_out = sys.stdout\n"
+            "sys.stdout = open(os.devnull, 'w')\n"
+            "try:\n"
+            "    from admet_ai import ADMETModel\n"
+            "    model = ADMETModel(num_workers=0, fingerprint_multiprocessing_min=99999)\n"
+            "    preds = model.predict(smiles=smiles)\n"
+            "finally:\n"
+            "    sys.stdout.close(); sys.stdout = real_out\n"
+            "col = next(c for c in preds.columns if c.lower() == 'lipophilicity_astrazeneca')\n"
+            "print(json.dumps(preds[col].tolist()))\n"
+        )
+        try:
+            result = subprocess.run(
+                [drugagent_python, "-c", script, json.dumps(drug_smiles)],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip())
+            values = json.loads(result.stdout.strip())
+        except Exception as e:
+            return f"ADMET-AI logP prediction failed: {e}"
+        return {
+            'result': (
+                "Finished predicting the magnitude of the compound's lipophilicity (logP) "
+                "using ADMET-AI (Lipophilicity_AstraZeneca). "
+                "Lipophilicity is an important parameter for predicting how a drug passes "
+                "through cell membranes."
+            ),
+            'result_values': [
+                {'smile': s, 'value': v}
+                for s, v in zip(drug_smiles, values)
+            ]
+        }
+    # ──────────────────────────────────────────────────────────────────────
+
     task_list = [task]
 
     cls_tasks = ['BACE', 'BBBP', 'ClinTox', 'SIDER', 'Tox21', 'ToxCast']
