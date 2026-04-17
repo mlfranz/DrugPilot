@@ -12,7 +12,7 @@ torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
 
 import os
-os.chdir('/home/data1/lk/LLM/function_call/baishenglai_backend-main')
+os.chdir(os.path.dirname(os.path.dirname(current_dir)))  # baishenglai_backend-main/
 import time
 import pickle
 import math
