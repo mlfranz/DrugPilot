@@ -101,23 +101,44 @@ def drug_property_prediction(drug_smiles, property):
     if task is None:
         return "This is an invalid property, this property cannot be predicted."
 
-    # ── ADMET-AI override for logP (lipo / LIPO) ──────────────────────────
+    # ── ADMET-AI overrides for logP and logS ──────────────────────────────
     # admet_ai requires Python >=3.10; DrugPilot runs on 3.8, so we
     # delegate to the drugagent conda env via subprocess.
-    if task == 'LIPO':
+    _ADMET_AI_TASKS = {
+        'LIPO': {
+            'col':    'lipophilicity_astrazeneca',
+            'result': (
+                "Finished predicting the magnitude of the compound's lipophilicity (logP) "
+                "using ADMET-AI (Lipophilicity_AstraZeneca). "
+                "Lipophilicity is an important parameter for predicting how a drug passes "
+                "through cell membranes."
+            ),
+        },
+        'ESOL': {
+            'col':    'solubility_aqsoldb',
+            'result': (
+                "Finished predicting the magnitude of the drug's water solubility (logS) "
+                "using ADMET-AI (Solubility_AqSolDB). "
+                "Water solubility is an important factor in drug design, especially in "
+                "terms of the drug's bioavailability and efficacy."
+            ),
+        },
+    }
+    if task in _ADMET_AI_TASKS:
         import subprocess
         import json
-        import sys
 
+        admet_col  = _ADMET_AI_TASKS[task]['col']
+        admet_desc = _ADMET_AI_TASKS[task]['result']
         drugagent_python = r"C:\Users\mlwfr\anaconda3\envs\drugagent\python.exe"
         script = (
             "import json, os, sys, warnings\n"
             "warnings.filterwarnings('ignore')\n"
             "smiles = json.loads(sys.argv[1])\n"
+            "col_name = sys.argv[2]\n"
             # Patch Ipc/AvgIpc before descriptastorus/admet_ai import them.
             # Both hang in subprocess on Windows (graph-isomorphism deadlock
-            # without a controlling terminal). Zeroing them causes a tiny
-            # systematic offset in the logP model but avoids the infinite hang.
+            # without a controlling terminal).
             "from rdkit.Chem import Descriptors\n"
             "_IPC_NAMES = {'Ipc', 'AvgIpc'}\n"
             "Descriptors.descList = [(n, (lambda m: 0.0) if n in _IPC_NAMES else f) for n, f in Descriptors.descList]\n"
@@ -131,26 +152,21 @@ def drug_property_prediction(drug_smiles, property):
             "    preds = model.predict(smiles=smiles)\n"
             "finally:\n"
             "    sys.stdout.close(); sys.stdout = real_out\n"
-            "col = next(c for c in preds.columns if c.lower() == 'lipophilicity_astrazeneca')\n"
+            "col = next(c for c in preds.columns if c.lower() == col_name)\n"
             "print(json.dumps(preds[col].tolist()))\n"
         )
         try:
             result = subprocess.run(
-                [drugagent_python, "-c", script, json.dumps(drug_smiles)],
+                [drugagent_python, "-c", script, json.dumps(drug_smiles), admet_col],
                 capture_output=True, text=True, timeout=120
             )
             if result.returncode != 0:
                 raise RuntimeError(result.stderr.strip())
             values = json.loads(result.stdout.strip())
         except Exception as e:
-            return f"ADMET-AI logP prediction failed: {e}"
+            return f"ADMET-AI prediction failed: {e}"
         return {
-            'result': (
-                "Finished predicting the magnitude of the compound's lipophilicity (logP) "
-                "using ADMET-AI (Lipophilicity_AstraZeneca). "
-                "Lipophilicity is an important parameter for predicting how a drug passes "
-                "through cell membranes."
-            ),
+            'result': admet_desc,
             'result_values': [
                 {'smile': s, 'value': v}
                 for s, v in zip(drug_smiles, values)
