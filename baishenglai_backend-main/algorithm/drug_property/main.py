@@ -127,10 +127,26 @@ def drug_property_prediction(drug_smiles, property):
     if task in _ADMET_AI_TASKS:
         import subprocess
         import json
+        import platform
+        import importlib.util
 
         admet_col  = _ADMET_AI_TASKS[task]['col']
         admet_desc = _ADMET_AI_TASKS[task]['result']
-        drugagent_python = r"C:\Users\mlwfr\anaconda3\envs\drugagent\python.exe"
+
+        # Resolve the Python interpreter that has admet_ai installed.
+        # On Windows we delegate to the drugagent conda env (admet_ai needs >=3.10,
+        # DrugPilot runs 3.8).  On Linux/NERSC the active env may already have it.
+        if platform.system() == "Windows":
+            drugagent_python = r"C:\Users\mlwfr\anaconda3\envs\drugagent\python.exe"
+        else:
+            if importlib.util.find_spec("admet_ai") is not None:
+                # Current env has admet_ai — use it directly (no subprocess overhead)
+                drugagent_python = sys.executable
+            else:
+                # Fall back to a drugagent-equivalent env in the user's conda
+                drugagent_python = os.path.expanduser(
+                    "~/anaconda3/envs/drugagent/bin/python"
+                )
         script = (
             "import json, os, sys, warnings\n"
             "warnings.filterwarnings('ignore')\n"
