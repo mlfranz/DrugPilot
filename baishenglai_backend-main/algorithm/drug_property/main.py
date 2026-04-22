@@ -66,9 +66,13 @@ def drug_property_prediction(drug_smiles, property):
         property (str): The property to predict. Must be one of the following:
             - 'Class': Predicts the inhibitory activity on BACE1.
             - 'p_np': Predicts the blood-brain barrier permeability.
-            - 'logSolubility': Predicts the water solubility.
+            - 'logSolubility': Predicts the water solubility (logS, ADMET-AI).
             - 'freesolv': Predicts the free energy.
-            - 'lipo': Predicts the lipid solubility.
+            - 'lipo': Predicts the lipid solubility / logP (ADMET-AI).
+            - 'ppbr': Predicts plasma protein binding ratio (PPBR %, ADMET-AI).
+            - 'clint_hep': Predicts intrinsic hepatic clearance (µL/min/10^6 cells, ADMET-AI).
+            - 'clint_micro': Predicts microsomal intrinsic clearance (mL/min/g protein, ADMET-AI).
+            - 'caco2': Predicts intestinal permeability (log Papp cm/s, ADMET-AI).
             
     """
 
@@ -123,6 +127,38 @@ def drug_property_prediction(drug_smiles, property):
                 "terms of the drug's bioavailability and efficacy."
             ),
         },
+        'PPBR': {
+            'col':    'ppbr_az',
+            'result': (
+                "Finished predicting plasma protein binding ratio (PPBR %) "
+                "using ADMET-AI (PPBR_AZ). "
+                "PPBR determines the fraction unbound (fu = 1 - PPBR/100), "
+                "which drives volume of distribution and hepatic clearance."
+            ),
+        },
+        'CLINT_HEP': {
+            'col':    'clearance_hepatocyte_az',
+            'result': (
+                "Finished predicting intrinsic hepatic clearance (CLint, µL/min/10^6 cells) "
+                "using ADMET-AI (Clearance_Hepatocyte_AZ). "
+                "Used in the well-stirred liver model to compute hepatic clearance."
+            ),
+        },
+        'CLINT_MICRO': {
+            'col':    'clearance_microsome_az',
+            'result': (
+                "Finished predicting microsomal intrinsic clearance (CLint, mL/min/g protein) "
+                "using ADMET-AI (Clearance_Microsome_AZ)."
+            ),
+        },
+        'CACO2': {
+            'col':    'caco2_wang',
+            'result': (
+                "Finished predicting intestinal permeability (log Papp, cm/s) "
+                "using ADMET-AI (Caco2_Wang). "
+                "log Papp > -5.15 indicates high permeability (well absorbed)."
+            ),
+        },
     }
     if task in _ADMET_AI_TASKS:
         import subprocess
@@ -144,8 +180,14 @@ def drug_property_prediction(drug_smiles, property):
                 drugagent_python = sys.executable
             else:
                 # Fall back to a drugagent-equivalent env in the user's conda
-                drugagent_python = os.path.expanduser(
-                    "~/anaconda3/envs/drugagent/bin/python"
+                _candidates = [
+                    os.path.expanduser("~/anaconda3/envs/drugagent/bin/python"),
+                    os.path.expanduser("~/.conda/envs/drugagent/bin/python"),
+                    # NERSC: miniconda in pscratch
+                    "/pscratch/sd/m/mariaf/miniconda3/envs/drugagent/bin/python",
+                ]
+                drugagent_python = next(
+                    (p for p in _candidates if os.path.exists(p)), _candidates[0]
                 )
         script = (
             "import json, os, sys, warnings\n"
@@ -450,7 +492,11 @@ def get_task(property):
                   'SR-ATAD5', 'SR-HSE', 'SR-MMP', 'SR-p53'],
         'ESOL': ['logSolubility'],
         'FreeSolv': ['freesolv'],
-        'LIPO': ['lipo']
+        'LIPO': ['lipo'],
+        'PPBR': ['ppbr'],
+        'CLINT_HEP': ['clint_hep', 'clint_hepatocyte'],
+        'CLINT_MICRO': ['clint_micro', 'clint_microsome'],
+        'CACO2': ['caco2', 'caco2_logpapp'],
     }
     for task, properties in task_properties.items():
         if property in properties:
