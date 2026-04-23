@@ -57,6 +57,83 @@ def predicting(model, device, loader, loader_type, args):
     return total_preds.numpy().flatten()
 
 
+# ── Physiological constants (well-stirred liver model, human 70 kg) ───────
+_PBPK_MPPGL    = 45.0    # mg microsomal protein / g liver
+_PBPK_HPGL     = 120e6   # hepatocytes / g liver
+_PBPK_LIVER_WT = 1500.0  # g
+_PBPK_BW       = 70.0    # kg
+_PBPK_QH       = 21.0    # mL/min/kg hepatic blood flow
+
+# ── PK-Sim specific clearance conversion (mirrors drug_parameters_v2.py) ──
+# CLint [µL/min/10^6 cells] → Specific clearance [1/min]
+# Formula: CLint × HPGL × liver_density / (1000 × f_cell)
+_PKSIM_HPGL          = 120    # 10^6 hepatocytes / g liver (10^6 cancels with CLint denominator)
+_PKSIM_LIVER_DENSITY = 1.08   # g/mL
+_PKSIM_F_CELL        = 0.667  # fraction intracellular
+
+# ── RDKit basic pKa SMARTS (copied from ADMET-AI_parameter_derivation_notebook) ──
+_BASIC_SMARTS_PKA = [
+    ("[NX3;H0;!$(N=*);!$(N-[#6]=[!#6]);!$(NC=O);!$(NS=O)][CX4][CX4][NX3;H0]", 12.5),
+    ("[NX3;H2][CX4]", 10.6),
+    ("[NX3;H1]([CX4])[CX4]", 10.5),
+    ("[NX3;H0]([CX4])[CX4]", 10.0),
+    ("n1ccnc1", 5.2),
+    ("[nX2]", 5.2),
+    ("[NH2]c", 4.6),
+]
+
+
+def estimate_basic_pka_rdkit(smiles):
+    """Estimate basic pKa from SMARTS patterns. Returns None when no match."""
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return None
+    for smarts, pka in _BASIC_SMARTS_PKA:
+        pat = Chem.MolFromSmarts(smarts)
+        if pat and mol.HasSubstructMatch(pat):
+            return pka
+    return None
+
+
+def _admet_ai_multi_predict(drug_smiles, col_names, drugagent_python):
+    """
+    Call the ADMET-AI subprocess once and return values for multiple columns.
+    Returns: {col_name: [float|None, ...]} with values in the same order as drug_smiles.
+    """
+    import subprocess as _sp, json as _json
+    script = (
+        "import json, os, sys, warnings\n"
+        "warnings.filterwarnings('ignore')\n"
+        "smiles    = json.loads(sys.argv[1])\n"
+        "col_names = json.loads(sys.argv[2])\n"
+        "from rdkit.Chem import Descriptors\n"
+        "_IPC_NAMES = {'Ipc', 'AvgIpc'}\n"
+        "Descriptors.descList = [(n, (lambda m: 0.0) if n in _IPC_NAMES else f) for n, f in Descriptors.descList]\n"
+        "Descriptors.Ipc = lambda m: 0.0\n"
+        "Descriptors.AvgIpc = lambda m: 0.0\n"
+        "real_out = sys.stdout\n"
+        "sys.stdout = open(os.devnull, 'w')\n"
+        "try:\n"
+        "    from admet_ai import ADMETModel\n"
+        "    model = ADMETModel(num_workers=0, fingerprint_multiprocessing_min=99999)\n"
+        "    preds = model.predict(smiles=smiles)\n"
+        "finally:\n"
+        "    sys.stdout.close(); sys.stdout = real_out\n"
+        "result = {}\n"
+        "for col_name in col_names:\n"
+        "    col = next((c for c in preds.columns if c.lower() == col_name.lower()), None)\n"
+        "    result[col_name] = preds[col].tolist() if col is not None else [None]*len(smiles)\n"
+        "print(json.dumps(result))\n"
+    )
+    res = _sp.run(
+        [drugagent_python, "-c", script, _json.dumps(drug_smiles), _json.dumps(col_names)],
+        capture_output=True, text=True, timeout=180,
+    )
+    if res.returncode != 0:
+        raise RuntimeError(res.stderr.strip())
+    return _json.loads(res.stdout.strip())
+
+
 def drug_property_prediction(drug_smiles, property):
     """
     Predicting the value of the specified property of the specified drug SMILES.
@@ -68,7 +145,7 @@ def drug_property_prediction(drug_smiles, property):
             - 'p_np': Predicts the blood-brain barrier permeability.
             - 'logSolubility': Predicts the water solubility (logS, ADMET-AI).
             - 'freesolv': Predicts the free energy.
-            - 'lipo': Predicts the lipid solubility / logP (ADMET-AI).
+            - 'lipo': Predicts logD7.4 (Lipophilicity_AstraZeneca, measured at pH 7.4, ADMET-AI).
             - 'ppbr': Predicts plasma protein binding ratio (PPBR %, ADMET-AI).
             - 'clint_hep': Predicts intrinsic hepatic clearance (µL/min/10^6 cells, ADMET-AI).
             - 'clint_micro': Predicts microsomal intrinsic clearance (mL/min/g protein, ADMET-AI).
@@ -230,7 +307,174 @@ def drug_property_prediction(drug_smiles, property):
                 for s, v in zip(drug_smiles, values)
             ]
         }
-    # ──────────────────────────────────────────────────────────────────────
+    # ── Derived PBPK tasks (pKa, logD7.4, fu, CL_plasma) ─────────────────
+    _DERIVED_TASK_KEYS = {'PKA', 'FU', 'LOGD74', 'CL_PLASMA_MICRO', 'CL_PLASMA_HEP', 'PBPK_ALL'}
+    if task in _DERIVED_TASK_KEYS:
+        import subprocess, json, platform, importlib.util, math, sys as _sys
+
+        if platform.system() == "Windows":
+            drugagent_python = r"C:\Users\mlwfr\anaconda3\envs\drugagent\python.exe"
+        else:
+            if importlib.util.find_spec("admet_ai") is not None:
+                drugagent_python = _sys.executable
+            else:
+                _candidates = [
+                    os.path.expanduser("~/anaconda3/envs/drugagent/bin/python"),
+                    os.path.expanduser("~/.conda/envs/drugagent/bin/python"),
+                    "/pscratch/sd/m/mariaf/miniconda3/envs/drugagent/bin/python",
+                ]
+                drugagent_python = next(
+                    (p for p in _candidates if os.path.exists(p)), _candidates[0]
+                )
+
+        try:
+            if task == 'PKA':
+                values = [estimate_basic_pka_rdkit(s) for s in drug_smiles]
+                return {
+                    'result': (
+                        "Finished estimating basic pKa using RDKit SMARTS heuristics. "
+                        "Returns None when no basic nitrogen pattern is matched."
+                    ),
+                    'result_values': [{'smile': s, 'value': v} for s, v in zip(drug_smiles, values)],
+                }
+
+            elif task == 'FU':
+                preds = _admet_ai_multi_predict(drug_smiles, ['ppbr_az'], drugagent_python)
+                ppbr_vals = preds['ppbr_az']
+                fu_vals = [
+                    round(max(0.0, 1.0 - p / 100.0), 4) if p is not None else None
+                    for p in ppbr_vals
+                ]
+                return {
+                    'result': (
+                        "Finished predicting fraction unbound (fu = 1 − PPBR/100) using "
+                        "ADMET-AI (PPBR_AZ). Clipped at 0."
+                    ),
+                    'result_values': [{'smile': s, 'value': v} for s, v in zip(drug_smiles, fu_vals)],
+                }
+
+            elif task == 'LOGD74':
+                # ADMET-AI Lipophilicity_AstraZeneca is measured as logD at pH 7.4 directly —
+                # no Henderson-Hasselbalch correction needed or appropriate.
+                preds = _admet_ai_multi_predict(
+                    drug_smiles, ['lipophilicity_astrazeneca'], drugagent_python
+                )
+                logd_vals = [
+                    round(v, 3) if v is not None else None
+                    for v in preds['lipophilicity_astrazeneca']
+                ]
+                return {
+                    'result': (
+                        "Finished predicting logD7.4 (distribution coefficient at pH 7.4) "
+                        "using ADMET-AI (Lipophilicity_AstraZeneca). "
+                        "The AstraZeneca assay measures logD at pH 7.4 directly — "
+                        "no Henderson-Hasselbalch correction is applied."
+                    ),
+                    'result_values': [{'smile': s, 'value': v} for s, v in zip(drug_smiles, logd_vals)],
+                }
+
+            elif task == 'CL_PLASMA_MICRO':
+                preds = _admet_ai_multi_predict(
+                    drug_smiles, ['clearance_microsome_az', 'ppbr_az'], drugagent_python
+                )
+                cl_vals = []
+                for clint, ppbr in zip(preds['clearance_microsome_az'], preds['ppbr_az']):
+                    if clint is None or ppbr is None:
+                        cl_vals.append(None)
+                        continue
+                    fu_c = max(0.001, 1.0 - ppbr / 100.0)
+                    clint_vivo = max(0.0, clint) * _PBPK_MPPGL * 1e-3 * _PBPK_LIVER_WT / _PBPK_BW
+                    fu_clint = fu_c * clint_vivo
+                    cl_vals.append(round(_PBPK_QH * fu_clint / (_PBPK_QH + fu_clint), 3))
+                return {
+                    'result': (
+                        "Finished calculating total plasma clearance from microsomal CLint "
+                        "(well-stirred liver model, ADMET-AI Clearance_Microsome_AZ + PPBR_AZ). "
+                        "Units: mL/min/kg."
+                    ),
+                    'result_values': [{'smile': s, 'value': v} for s, v in zip(drug_smiles, cl_vals)],
+                }
+
+            elif task == 'CL_PLASMA_HEP':
+                preds = _admet_ai_multi_predict(
+                    drug_smiles, ['clearance_hepatocyte_az', 'ppbr_az'], drugagent_python
+                )
+                cl_vals = []
+                for clint, ppbr in zip(preds['clearance_hepatocyte_az'], preds['ppbr_az']):
+                    if clint is None or ppbr is None:
+                        cl_vals.append(None)
+                        continue
+                    fu_c = max(0.001, 1.0 - ppbr / 100.0)
+                    clint_vivo = (
+                        max(0.0, clint) * (_PBPK_HPGL / 1e6) * _PBPK_LIVER_WT / _PBPK_BW / 1e3
+                    )
+                    fu_clint = fu_c * clint_vivo
+                    cl_vals.append(round(_PBPK_QH * fu_clint / (_PBPK_QH + fu_clint), 3))
+                return {
+                    'result': (
+                        "Finished calculating total plasma clearance from hepatocyte CLint "
+                        "(well-stirred liver model, ADMET-AI Clearance_Hepatocyte_AZ + PPBR_AZ). "
+                        "Units: mL/min/kg."
+                    ),
+                    'result_values': [{'smile': s, 'value': v} for s, v in zip(drug_smiles, cl_vals)],
+                }
+
+            elif task == 'PBPK_ALL':
+                _cols = [
+                    'lipophilicity_astrazeneca',
+                    'solubility_aqsoldb',
+                    'ppbr_az',
+                    'clearance_hepatocyte_az',
+                    'clearance_microsome_az',
+                    'caco2_wang',
+                ]
+                preds = _admet_ai_multi_predict(drug_smiles, _cols, drugagent_python)
+                result_values = []
+                for i, s in enumerate(drug_smiles):
+                    logd74 = preds['lipophilicity_astrazeneca'][i]   # already logD7.4
+                    logs   = preds['solubility_aqsoldb'][i]
+                    ppbr   = preds['ppbr_az'][i]
+                    clh    = preds['clearance_hepatocyte_az'][i]
+                    clm    = preds['clearance_microsome_az'][i]
+                    caco2  = preds['caco2_wang'][i]
+                    pka    = estimate_basic_pka_rdkit(s)
+                    fu     = max(0.0, 1.0 - ppbr / 100.0) if ppbr is not None else None
+                    # PK-Sim specific clearance [1/min] from CLint_hep [µL/min/10^6 cells]
+                    spec_cl = (
+                        round(clh * _PKSIM_HPGL * _PKSIM_LIVER_DENSITY / (1000.0 * _PKSIM_F_CELL), 4)
+                        if clh is not None else None
+                    )
+                    result_values.append({
+                        'smile': s,
+                        'value': {
+                            'logD74':            round(logd74, 3) if logd74 is not None else None,
+                            'logS':              round(logs,   3) if logs   is not None else None,
+                            'PPBR_pct':          round(ppbr,   3) if ppbr   is not None else None,
+                            'fu':                round(fu,     4) if fu     is not None else None,
+                            'CLint_hep':         round(clh,    3) if clh    is not None else None,
+                            'CLint_micro':       round(clm,    3) if clm    is not None else None,
+                            'specific_clearance': spec_cl,
+                            'Caco2_logPapp':     round(caco2,  3) if caco2  is not None else None,
+                            'pKa':               pka,
+                        },
+                    })
+                return {
+                    'result': (
+                        "Finished computing all PK-Sim PBPK-ready parameters: "
+                        "logD74, logS, PPBR, fu, CLint_hep, CLint_micro, Caco-2 (ADMET-AI); "
+                        "pKa (RDKit SMARTS); specific_clearance (PK-Sim format, 1/min). "
+                        "logD74 = Lipophilicity_AstraZeneca (logD at pH 7.4, no HH correction). "
+                        "specific_clearance = CLint_hep × HPGL × liver_density / (1000 × f_cell). "
+                        "Units: logD74/logS (log), PPBR (%), fu (fraction), "
+                        "CLint_hep (µL/min/10^6 cells), CLint_micro (mL/min/g protein), "
+                        "Caco2 (log cm/s), specific_clearance (1/min)."
+                    ),
+                    'result_values': result_values,
+                }
+
+        except Exception as e:
+            return f"Derived property prediction failed: {e}"
+    # ── end derived tasks ─────────────────────────────────────────────────
 
     task_list = [task]
 
@@ -497,6 +741,12 @@ def get_task(property):
         'CLINT_HEP': ['clint_hep', 'clint_hepatocyte'],
         'CLINT_MICRO': ['clint_micro', 'clint_microsome'],
         'CACO2': ['caco2', 'caco2_logpapp'],
+        'PKA':             ['pka'],
+        'LOGD74':          ['logd74', 'log_d74'],
+        'FU':              ['fu', 'fraction_unbound'],
+        'CL_PLASMA_MICRO': ['cl_plasma_micro', 'cl_micro'],
+        'CL_PLASMA_HEP':   ['cl_plasma_hep', 'cl_hep'],
+        'PBPK_ALL':        ['pbpk_all', 'all_pbpk'],
     }
     for task, properties in task_properties.items():
         if property in properties:
