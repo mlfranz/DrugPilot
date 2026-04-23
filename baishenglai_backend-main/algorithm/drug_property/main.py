@@ -189,10 +189,10 @@ def drug_property_prediction(drug_smiles, property):
         'LIPO': {
             'col':    'lipophilicity_astrazeneca',
             'result': (
-                "Finished predicting the magnitude of the compound's lipophilicity (logP) "
+                "Finished predicting logD7.4 (distribution coefficient at pH 7.4) "
                 "using ADMET-AI (Lipophilicity_AstraZeneca). "
-                "Lipophilicity is an important parameter for predicting how a drug passes "
-                "through cell membranes."
+                "The AstraZeneca assay measures logD at pH 7.4 directly — "
+                "no Henderson-Hasselbalch correction needed."
             ),
         },
         'ESOL': {
@@ -485,7 +485,7 @@ def drug_property_prediction(drug_smiles, property):
         'BBBP': 'Finished predicting the probability that the compound can effectively penetrate the blood-brain barrier, which is very important for the design of central nervous system drugs.',
         'ESOL': 'Finished predicting the magnitude of the drug\'s water solubility. Water solubility is an important factor in drug design, especially in terms of the drug\'s bioavailability and efficacy.',
         'FreeSolv': 'Finished predicting the magnitude of the solvation free energy of the compound in water, which is crucial for understanding the behavior of molecules in biological systems.',
-        'LIPO': 'Finished predicting the magnitude of the compound\'s lipophilicity (logP). Lipophilicity is an important parameter for predicting how a drug passes through cell membranes.'
+        'LIPO': 'Finished predicting logD7.4 (distribution coefficient at pH 7.4) using ADMET-AI (Lipophilicity_AstraZeneca). The AstraZeneca assay measures logD at pH 7.4 directly.'
     }
     task_properties = {
         'BACE': ['Class'],
